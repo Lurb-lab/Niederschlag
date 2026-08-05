@@ -1,0 +1,794 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<title>Pegel · Niederschlagsbuch</title>
+<meta name="description" content="Niederschlagsmengen lokal erfassen, auswerten und als xlsx exportieren.">
+<meta name="theme-color" content="#1D7A9E">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  :root{
+    --himmel:#F4F8F4;
+    --himmel-2:#E9F3EC;
+    --flaeche:#FFFFFF;
+    --tinte:#3A4750;
+    --tinte-60:#3A475099;
+    --tinte-30:#3A475044;
+    --regen:#4FADD1;
+    --regen-dunkel:#1D7A9E;
+    --regen-hell:#AEDCEC;
+    --sonne:#F4A860;
+    --warnung:#E08A4F;
+    --linie:#E1EAE3;
+    --schatten: 0 1px 2px rgba(46,147,190,.06), 0 10px 26px rgba(46,147,190,.10);
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{height:100%;}
+  body{
+    margin:0;
+    font-family: ui-rounded, "SF Pro Rounded", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background:
+      linear-gradient(180deg, var(--himmel) 0%, var(--himmel-2) 100%);
+    color:var(--tinte);
+    height:100dvh;
+    overflow:hidden;
+    display:flex;
+    flex-direction:column;
+  }
+  .mono{font-family: ui-monospace, "SF Mono", "Roboto Mono", "Consolas", monospace;}
+  .label{
+    font-size:12px;
+    letter-spacing:.02em;
+    color:var(--tinte-60);
+    font-weight:700;
+  }
+  header.topbar{
+    flex:0 0 auto;
+    padding:max(14px, env(safe-area-inset-top)) 18px 10px 18px;
+    display:flex;
+    align-items:baseline;
+    justify-content:space-between;
+  }
+  header.topbar .brand{
+    display:flex; align-items:center; gap:8px;
+  }
+  header.topbar .brand svg{width:20px;height:20px;}
+  header.topbar h1{
+    font-size:17px; margin:0; letter-spacing:0; font-weight:800; color:var(--regen-dunkel);
+  }
+  main{
+    flex:1 1 auto;
+    min-height:0;
+    position:relative;
+    overflow:hidden;
+  }
+  .screen{
+    position:absolute; inset:0;
+    padding:6px 18px 12px 18px;
+    display:none;
+    flex-direction:column;
+    min-height:0;
+  }
+  .screen.active{display:flex;}
+
+  /* ---------- Erfassen ---------- */
+  #screen-erfassen{ gap:12px; padding-top:8px; }
+  .gauge-wrap{
+    position:relative;
+    background:var(--flaeche);
+    border-radius:22px;
+    box-shadow:var(--schatten);
+    padding:22px 20px 26px 20px;
+    overflow:hidden;
+  }
+  .gauge-wrap::before{
+    content:"";
+    position:absolute; left:0; top:0; bottom:0; width:34px;
+    background-image: repeating-linear-gradient(
+      to bottom,
+      var(--linie) 0px, var(--linie) 1px,
+      transparent 1px, transparent 12px
+    );
+    background-position: 22px 0;
+    opacity:.55;
+  }
+  .gauge-wrap::after{
+    content:"";
+    position:absolute; left:22px; top:0; bottom:0; width:1px;
+    background: var(--linie);
+  }
+  .entry-inner{ position:relative; margin-left:20px; }
+  .entry-label{ font-size:13px; letter-spacing:0; color:var(--tinte-60); font-weight:700; margin-bottom:6px;}
+  .amount-row{ display:flex; align-items:baseline; gap:10px; }
+  input#amount{
+    font-family: ui-monospace, "SF Mono", "Roboto Mono", monospace;
+    font-size:56px; font-weight:600; color:var(--regen-dunkel);
+    border:none; background:transparent; width:100%; padding:0;
+    outline:none; -moz-appearance:textfield;
+  }
+  input#amount::-webkit-outer-spin-button, input#amount::-webkit-inner-spin-button{ -webkit-appearance:none; margin:0; }
+  .unit{ font-size:20px; font-weight:600; color:var(--regen); }
+  .divider{ height:1px; background:var(--linie); margin:14px 0; margin-left:-20px; }
+  .date-row{ display:flex; align-items:center; justify-content:space-between; margin-left:-20px; padding-left:20px;}
+  input#datum{
+    font-family: ui-monospace, "SF Mono", "Roboto Mono", monospace;
+    font-size:17px; font-weight:600; color:var(--tinte); border:none; background:transparent; outline:none;
+  }
+  .save-btn{
+    display:flex; align-items:center; justify-content:center; gap:8px;
+    background:var(--regen-dunkel); color:#fff; border:none; border-radius:16px;
+    padding:16px; font-size:16px; font-weight:700; letter-spacing:.03em; cursor:pointer;
+    box-shadow:0 10px 24px rgba(1,58,99,.28);
+  }
+  .save-btn:active{ transform:translateY(1px); }
+  .save-hint{ text-align:center; font-size:12px; color:var(--tinte-60); margin-top:-6px;}
+  .status-msg{
+    text-align:center; font-size:13px; font-weight:600; color:var(--regen-dunkel);
+    min-height:18px; opacity:0; transition:opacity .25s;
+  }
+  .status-msg.show{ opacity:1; }
+
+  .recent-card{
+    flex:1 1 auto; min-height:0; display:flex; flex-direction:column;
+    background:var(--flaeche); border-radius:16px; box-shadow:var(--schatten);
+    padding:12px 14px; overflow:hidden;
+  }
+  .recent-head{
+    font-size:13px; letter-spacing:0; color:var(--tinte-60);
+    font-weight:700; flex:0 0 auto; margin-bottom:6px;
+  }
+  .recent-list{ flex:1 1 auto; min-height:0; overflow-y:auto; }
+  .recent-row{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:8px 0; border-top:1px solid var(--linie);
+  }
+  .recent-row:first-child{ border-top:none; }
+  .recent-row .r-date{ font-family:ui-monospace,monospace; font-size:13px; font-weight:600; color:var(--tinte); }
+  .recent-row .r-val{ font-family:ui-monospace,monospace; font-size:14px; font-weight:700; color:var(--sonne); }
+  .recent-empty{ font-size:13px; color:var(--tinte-60); padding:8px 0; }
+
+  /* ---------- Auswertung ---------- */
+  #screen-auswertung{ padding-top:4px; }
+  .seg{
+    display:flex; background:var(--flaeche); border-radius:14px; padding:4px; box-shadow:var(--schatten);
+    flex:0 0 auto;
+  }
+  .seg button{
+    flex:1; border:none; background:transparent; padding:10px 0; font-size:14px; font-weight:700;
+    letter-spacing:0; color:var(--tinte-60); border-radius:11px; cursor:pointer;
+  }
+  .seg button.active{ background:var(--regen-dunkel); color:#fff; }
+  .period-nav{
+    flex:0 0 auto; display:flex; align-items:center; justify-content:space-between; margin-top:10px;
+  }
+  .period-nav button{
+    width:34px; height:34px; border-radius:50%; border:none; background:var(--flaeche); box-shadow:var(--schatten);
+    color:var(--regen-dunkel); font-size:16px; font-weight:800; cursor:pointer;
+  }
+  .period-title{ text-align:center; }
+  .period-title .p-name{ font-size:16px; font-weight:700; color:var(--regen-dunkel); }
+  .period-title .p-stats{ display:flex; gap:10px; justify-content:center; margin-top:2px; }
+  .period-title .p-stat{ font-size:11px; color:var(--tinte-60); font-weight:600; }
+  .period-title .p-stat b{ font-family: ui-monospace, monospace; color:var(--regen); font-size:12px;}
+  .chart-card{
+    flex:1 1 auto; min-height:0; margin-top:10px; background:var(--flaeche); border-radius:18px;
+    box-shadow:var(--schatten); padding:10px 8px 4px 4px; display:flex;
+  }
+  .chart-card svg{ width:100%; height:100%; display:block; }
+
+  /* ---------- Einstellungen ---------- */
+  #screen-einstellungen{ padding-top:8px; gap:12px; overflow-y:auto; }
+  .set-title{ font-size:20px; font-weight:800; color:var(--regen-dunkel); margin:2px 0 4px 0;}
+  .card{ background:var(--flaeche); border-radius:16px; box-shadow:var(--schatten); padding:14px 16px; }
+  .card + .card{ margin-top:2px; }
+  .set-row{ display:flex; align-items:center; justify-content:space-between; gap:10px; }
+  .set-row + .set-row{ margin-top:12px; padding-top:12px; border-top:1px solid var(--linie); }
+  .set-row .t{ font-size:14px; font-weight:700; }
+  .set-row .s{ font-size:12px; color:var(--tinte-60); margin-top:2px; }
+  .btn{
+    border:none; border-radius:11px; padding:10px 14px; font-size:13px; font-weight:700; cursor:pointer;
+    white-space:nowrap;
+  }
+  .btn.primary{ background:var(--regen-dunkel); color:#fff; }
+  .btn.ghost{ background:var(--himmel-2); color:var(--regen-dunkel); }
+  .btn.danger{ background:#F3E2DA; color:var(--warnung); }
+
+  /* ---------- Bottom nav ---------- */
+  nav.tabbar{
+    flex:0 0 auto;
+    display:flex;
+    padding: 6px 10px max(8px, env(safe-area-inset-bottom)) 10px;
+    background:var(--flaeche);
+    box-shadow: 0 -1px 0 var(--linie);
+  }
+  nav.tabbar button{
+    flex:1; display:flex; flex-direction:column; align-items:center; gap:3px;
+    background:transparent; border:none; padding:8px 0 4px 0; cursor:pointer; color:var(--tinte-30);
+  }
+  nav.tabbar button svg{ width:22px; height:22px; }
+  nav.tabbar button span{ font-size:11px; font-weight:700; letter-spacing:0; }
+  nav.tabbar button.active{ color:var(--regen-dunkel); }
+
+  /* ---------- Modal / Onboarding ---------- */
+  .overlay{
+    position:fixed; inset:0; background:rgba(2,26,42,.5); display:flex; align-items:center; justify-content:center;
+    padding:24px; z-index:50;
+  }
+  .overlay.hidden{ display:none; }
+  .modal{ background:var(--flaeche); border-radius:20px; padding:24px 22px; max-width:340px; width:100%; box-shadow:var(--schatten); }
+  .modal h2{ font-size:17px; margin:0 0 8px 0; color:var(--regen-dunkel); }
+  .modal p{ font-size:13.5px; line-height:1.5; color:var(--tinte-60); margin:0 0 18px 0; }
+  .modal .row{ display:flex; gap:10px; }
+  .modal .row button{ flex:1; }
+  input[type=file]{ display:none; }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <svg viewBox="0 0 24 24" fill="none"><path d="M12 2c3 4.5 6 8 6 11.5A6 6 0 1 1 6 13.5C6 10 9 6 12 2Z" fill="#4FADD1"/></svg>
+    <h1>Pegel</h1>
+  </div>
+  <div class="label" id="topbar-sub">Niederschlagsbuch</div>
+</header>
+
+<main>
+
+  <!-- ERFASSEN -->
+  <section class="screen active" id="screen-erfassen">
+    <div class="gauge-wrap">
+      <div class="entry-inner">
+        <div class="entry-label">Niederschlag</div>
+        <div class="amount-row">
+          <input id="amount" type="number" inputmode="decimal" step="0.1" min="0" placeholder="0.0" />
+          <span class="unit">mm</span>
+        </div>
+        <div class="divider"></div>
+        <div class="date-row">
+          <span class="entry-label" style="margin:0;">Datum</span>
+          <input id="datum" type="date">
+        </div>
+      </div>
+    </div>
+    <button class="save-btn" id="btn-save">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M5 12.5 10 17l9-10" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      Eintrag speichern
+    </button>
+    <div class="status-msg" id="status-msg"></div>
+
+    <div class="recent-card">
+      <div class="recent-head">Letzte 10 Einträge</div>
+      <div class="recent-list" id="recent-list"></div>
+    </div>
+  </section>
+
+  <!-- AUSWERTUNG -->
+  <section class="screen" id="screen-auswertung">
+    <div class="seg">
+      <button id="seg-monat" class="active">Monat</button>
+      <button id="seg-jahr">Jahr</button>
+    </div>
+    <div class="period-nav">
+      <button id="nav-prev">‹</button>
+      <div class="period-title">
+        <div class="p-name" id="period-name">—</div>
+        <div class="p-stats">
+          <div class="p-stat">Ø <b id="period-avg">0,0 mm</b></div>
+          <div class="p-stat">Σ <b id="period-sum">0,0 mm</b></div>
+        </div>
+      </div>
+      <button id="nav-next">›</button>
+    </div>
+    <div class="chart-card"><svg id="chart" viewBox="0 0 100 100" preserveAspectRatio="none"></svg></div>
+  </section>
+
+  <!-- EINSTELLUNGEN -->
+  <section class="screen" id="screen-einstellungen">
+    <div class="set-title">Einstellungen</div>
+    <div class="card">
+      <div class="set-row">
+        <div>
+          <div class="t">Datenquelle</div>
+          <div class="s" id="set-filename">Keine Datei ausgewählt</div>
+        </div>
+        <button class="btn ghost" id="btn-reimport">Datei wählen</button>
+      </div>
+      <div class="set-row">
+        <div>
+          <div class="t">Als xlsx exportieren</div>
+          <div class="s">Speichert alle Einträge als Datei</div>
+        </div>
+        <button class="btn primary" id="btn-export">Export</button>
+      </div>
+      <div class="set-row">
+        <div>
+          <div class="t">Anzahl Einträge</div>
+          <div class="s" id="set-count">0 Tage erfasst</div>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="set-row">
+        <div>
+          <div class="t">Alle Daten löschen</div>
+          <div class="s">Setzt das Niederschlagsbuch zurück</div>
+        </div>
+        <button class="btn danger" id="btn-reset">Löschen</button>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<nav class="tabbar">
+  <button class="tab active" data-screen="erfassen">
+    <svg viewBox="0 0 24 24" fill="none"><path d="M12 2c3 4.5 6 8 6 11.5A6 6 0 1 1 6 13.5C6 10 9 6 12 2Z" stroke="currentColor" stroke-width="1.8"/></svg>
+    <span>Erfassen</span>
+  </button>
+  <button class="tab" data-screen="auswertung">
+    <svg viewBox="0 0 24 24" fill="none"><path d="M4 20V10M12 20V4M20 20v-7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+    <span>Auswertung</span>
+  </button>
+  <button class="tab" data-screen="einstellungen">
+    <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.8"/><path d="M19.4 13.5a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V20a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.55-1H4a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.55-1 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34H10a1.7 1.7 0 0 0 1-1.55V4a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87V10a1.7 1.7 0 0 0 1.55 1H20a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.55 1Z" stroke="currentColor" stroke-width="1.5"/></svg>
+    <span>Einstellungen</span>
+  </button>
+</nav>
+
+<!-- Onboarding Overlay -->
+<div class="overlay hidden" id="overlay-onboarding">
+  <div class="modal">
+    <h2>Willkommen bei Pegel</h2>
+    <p>Möchtest du bestehende Niederschlagsdaten aus einer vorhandenen xlsx-Datei einlesen? Die Datei benötigt die Spalten „Datum" und „Niederschlag [mm]".</p>
+    <div class="row">
+      <button class="btn ghost" id="onb-no">Nein, neu starten</button>
+      <button class="btn primary" id="onb-yes">Datei wählen</button>
+    </div>
+  </div>
+</div>
+
+<!-- Bestätigungs-/Hinweis-Dialog -->
+<div class="overlay hidden" id="overlay-dialog">
+  <div class="modal">
+    <h2 id="dialog-title">Hinweis</h2>
+    <p id="dialog-message"></p>
+    <div class="row">
+      <button class="btn ghost" id="dialog-cancel">Abbrechen</button>
+      <button class="btn primary" id="dialog-ok">OK</button>
+    </div>
+  </div>
+</div>
+
+<input type="file" id="file-input" accept=".xlsx,.xls">
+
+<script>
+(function(){
+  "use strict";
+
+  /* ---------------- Utilities ---------------- */
+  const pad2 = n => String(n).padStart(2,'0');
+  const toKey = d => `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}`;
+  const keyToDate = k => { const [y,m,d] = k.split('-').map(Number); return new Date(y, m-1, d); };
+  const addDaysKey = (key, n) => { const d = keyToDate(key); d.setDate(d.getDate()+n); return toKey(d); };
+  const fmtDisplay = key => { const [y,m,d] = key.split('-'); return `${d}.${m}.${y}`; };
+  const fmtDe = v => (Math.round(v*10)/10).toFixed(1).replace('.',',');
+  const MONATE = ["Januar","Februar","März","April","Mai","Juni","Juli","August","September","Oktober","November","Dezember"];
+
+  /* ---------------- State ---------------- */
+  let data = {};       // { "YYYY-MM-DD": number }
+  let settings = {};   // { fileName }
+
+  function loadState(){
+    try{ data = JSON.parse(localStorage.getItem('pegel_data')||'{}'); }catch(e){ data = {}; }
+    try{ settings = JSON.parse(localStorage.getItem('pegel_settings')||'{}'); }catch(e){ settings = {}; }
+  }
+  function persistData(){ localStorage.setItem('pegel_data', JSON.stringify(data)); refreshSettingsScreen(); renderRecentList(); }
+  function persistSettings(){ localStorage.setItem('pegel_settings', JSON.stringify(settings)); refreshSettingsScreen(); }
+
+  /* ---------------- Dialog (ersetzt confirm()/alert()) ---------------- */
+  function showDialog({title='Hinweis', message='', okText='OK', cancelText=null}){
+    return new Promise(resolve=>{
+      const overlay = document.getElementById('overlay-dialog');
+      document.getElementById('dialog-title').textContent = title;
+      document.getElementById('dialog-message').textContent = message;
+      const okBtn = document.getElementById('dialog-ok');
+      const cancelBtn = document.getElementById('dialog-cancel');
+      okBtn.textContent = okText;
+      cancelBtn.style.display = cancelText ? '' : 'none';
+      if(cancelText) cancelBtn.textContent = cancelText;
+      overlay.classList.remove('hidden');
+      function cleanup(result){
+        overlay.classList.add('hidden');
+        okBtn.removeEventListener('click', onOk);
+        cancelBtn.removeEventListener('click', onCancel);
+        resolve(result);
+      }
+      function onOk(){ cleanup(true); }
+      function onCancel(){ cleanup(false); }
+      okBtn.addEventListener('click', onOk);
+      cancelBtn.addEventListener('click', onCancel);
+    });
+  }
+  function confirmDialog(message, title){
+    return showDialog({title: title || 'Bitte bestätigen', message, okText:'Überschreiben', cancelText:'Abbrechen'});
+  }
+  function alertDialog(message, title){
+    return showDialog({title: title || 'Hinweis', message, okText:'OK', cancelText:null});
+  }
+
+  /* ---------------- Tabs ---------------- */
+  const screens = document.querySelectorAll('.screen');
+  const tabs = document.querySelectorAll('.tab');
+  tabs.forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      tabs.forEach(b=>b.classList.remove('active'));
+      btn.classList.add('active');
+      screens.forEach(s=>s.classList.remove('active'));
+      document.getElementById('screen-'+btn.dataset.screen).classList.add('active');
+      if(btn.dataset.screen==='auswertung'){ renderChart(); }
+    });
+  });
+
+  /* ---------------- Erfassen ---------------- */
+  const amountInput = document.getElementById('amount');
+  const datumInput = document.getElementById('datum');
+  const statusMsg = document.getElementById('status-msg');
+
+  function todayKey(){ return toKey(new Date()); }
+  datumInput.value = todayKey();
+
+  function showStatus(msg){
+    statusMsg.textContent = msg;
+    statusMsg.classList.add('show');
+    clearTimeout(showStatus._t);
+    showStatus._t = setTimeout(()=>statusMsg.classList.remove('show'), 2200);
+  }
+
+  document.getElementById('btn-save').addEventListener('click', async ()=>{
+    const key = datumInput.value;
+    if(!key){ showStatus('Bitte ein Datum wählen.'); return; }
+    let raw = amountInput.value;
+    if(raw === ''){ showStatus('Bitte eine Menge eingeben.'); return; }
+    let value = Math.round(parseFloat(raw.replace(',','.')) * 10) / 10;
+    if(isNaN(value) || value < 0){ showStatus('Bitte eine positive Zahl eingeben.'); return; }
+
+    const existing = data[key];
+    if(existing !== undefined){
+      const ok = await confirmDialog(`Am ${fmtDisplay(key)} sind bereits ${fmtDe(existing)} mm erfasst. Wert überschreiben?`);
+      if(!ok) return;
+    }
+
+    // Leere Tage bis zum letzten bestehenden Eintrag mit 0 auffüllen
+    const otherKeys = Object.keys(data).filter(k=>k!==key);
+    if(otherKeys.length){
+      const lastKey = otherKeys.sort().slice(-1)[0];
+      if(key > lastKey){
+        let cursor = addDaysKey(lastKey, 1);
+        let guard = 0;
+        while(cursor < key && guard < 20000){
+          if(data[cursor] === undefined) data[cursor] = 0;
+          cursor = addDaysKey(cursor, 1);
+          guard++;
+        }
+      }
+    }
+
+    data[key] = value;
+    persistData();
+    showStatus(`Gespeichert: ${fmtDe(value)} mm am ${fmtDisplay(key)}`);
+    amountInput.value = '';
+  });
+
+  /* ---------------- Auswertung ---------------- */
+  let mode = 'monat'; // 'monat' | 'jahr'
+  const now = new Date();
+  let viewYear = now.getFullYear();
+  let viewMonth = now.getMonth(); // 0-11
+
+  const segMonat = document.getElementById('seg-monat');
+  const segJahr = document.getElementById('seg-jahr');
+  segMonat.addEventListener('click', ()=>{ mode='monat'; segMonat.classList.add('active'); segJahr.classList.remove('active'); renderChart(); });
+  segJahr.addEventListener('click', ()=>{ mode='jahr'; segJahr.classList.add('active'); segMonat.classList.remove('active'); renderChart(); });
+
+  document.getElementById('nav-prev').addEventListener('click', ()=>{
+    if(mode==='monat'){ viewMonth--; if(viewMonth<0){ viewMonth=11; viewYear--; } }
+    else { viewYear--; }
+    renderChart();
+  });
+  document.getElementById('nav-next').addEventListener('click', ()=>{
+    if(mode==='monat'){ viewMonth++; if(viewMonth>11){ viewMonth=0; viewYear++; } }
+    else { viewYear++; }
+    renderChart();
+  });
+
+  function daysInMonth(y,m){ return new Date(y, m+1, 0).getDate(); }
+
+  function renderChart(){
+    const svg = document.getElementById('chart');
+    const periodName = document.getElementById('period-name');
+    const periodAvg = document.getElementById('period-avg');
+    let labels = [], values = [];
+
+    const heute = new Date();
+    const istAktuellerMonat = mode==='monat' && viewYear===heute.getFullYear() && viewMonth===heute.getMonth();
+    const istAktuellesJahr = mode==='jahr' && viewYear===heute.getFullYear();
+    let avgDivisor;
+
+    if(mode === 'monat'){
+      periodName.textContent = `${MONATE[viewMonth]} ${viewYear}`;
+      const dim = daysInMonth(viewYear, viewMonth);
+      for(let d=1; d<=dim; d++){
+        const key = `${viewYear}-${pad2(viewMonth+1)}-${pad2(d)}`;
+        labels.push(String(d));
+        values.push(data[key] || 0);
+      }
+      avgDivisor = istAktuellerMonat ? heute.getDate() : dim;
+    } else {
+      periodName.textContent = `${viewYear}`;
+      for(let m=0; m<12; m++){
+        const dim = daysInMonth(viewYear, m);
+        let sum = 0;
+        for(let d=1; d<=dim; d++){
+          const key = `${viewYear}-${pad2(m+1)}-${pad2(d)}`;
+          sum += data[key] || 0;
+        }
+        labels.push(MONATE[m].slice(0,3));
+        values.push(Math.round(sum*10)/10);
+      }
+      avgDivisor = istAktuellesJahr ? (heute.getMonth()+1) : 12;
+    }
+
+    const sum = values.reduce((a,b)=>a+b,0);
+    const avg = avgDivisor > 0 ? sum/avgDivisor : 0;
+    periodAvg.textContent = Math.round(avg) + ' mm';
+    document.getElementById('period-sum').textContent = fmtDe(sum) + ' mm';
+
+    drawBars(svg, labels, values);
+  }
+
+  function drawBars(svg, labels, values){
+    const W = 1000, H = 560;
+    const padL = 34, padR = 10, padT = 34, padB = 46;
+    const plotW = W - padL - padR, plotH = H - padT - padB;
+    const maxVal = Math.max(1, ...values, ...([Math.max(...values,0)*1.25]));
+    const niceMax = Math.max(2, Math.ceil((Math.max(...values,0.001)*1.2))) ;
+    const n = values.length;
+    const gap = n > 20 ? plotW*0.12/n : plotW*0.35/n;
+    const barW = (plotW/n) - gap;
+
+    let svgns = 'http://www.w3.org/2000/svg';
+    while(svg.firstChild) svg.removeChild(svg.firstChild);
+    svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+
+    // gridlines like gauge markings (4 steps)
+    const steps = 4;
+    for(let i=0;i<=steps;i++){
+      const val = niceMax * i/steps;
+      const y = padT + plotH - (val/niceMax)*plotH;
+      const line = document.createElementNS(svgns,'line');
+      line.setAttribute('x1', padL); line.setAttribute('x2', W-padR);
+      line.setAttribute('y1', y); line.setAttribute('y2', y);
+      line.setAttribute('stroke', '#E1EAE3'); line.setAttribute('stroke-width', i===0?1.4:0.8);
+      svg.appendChild(line);
+      const t = document.createElementNS(svgns,'text');
+      t.setAttribute('x', 4); t.setAttribute('y', y+4);
+      t.setAttribute('font-size','15'); t.setAttribute('fill','#3A475099'); t.setAttribute('font-family','ui-monospace,monospace');
+      t.textContent = val.toFixed(0);
+      svg.appendChild(t);
+    }
+
+    const fewLabels = n > 20; // Monat mit vielen Tagen -> nicht jedes Label erzwingen Kollision, aber alle anzeigen (klein)
+
+    values.forEach((v,i)=>{
+      const x = padL + i*(plotW/n) + gap/2;
+      const barH = (v/niceMax) * plotH;
+      const y = padT + plotH - barH;
+
+      const rect = document.createElementNS(svgns,'rect');
+      rect.setAttribute('x', x);
+      rect.setAttribute('y', y);
+      rect.setAttribute('width', Math.max(barW,2));
+      rect.setAttribute('height', Math.max(barH,0));
+      rect.setAttribute('rx', Math.min(4, barW/4));
+      rect.setAttribute('fill', v>0 ? '#4FADD1' : '#E9F3EC');
+      svg.appendChild(rect);
+
+      if(v > 0){
+        const val = document.createElementNS(svgns,'text');
+        val.setAttribute('x', x + barW/2);
+        val.setAttribute('y', Math.max(y-6, padT-2));
+        val.setAttribute('text-anchor','middle');
+        val.setAttribute('font-size', fewLabels ? '13' : '16');
+        val.setAttribute('font-family','ui-monospace,monospace');
+        val.setAttribute('font-weight','700');
+        val.setAttribute('fill', '#E08A4F');
+        val.textContent = Math.round(v);
+        svg.appendChild(val);
+      }
+
+      const lbl = document.createElementNS(svgns,'text');
+      lbl.setAttribute('x', x + barW/2);
+      lbl.setAttribute('y', H - padB + (fewLabels? 34:20));
+      lbl.setAttribute('text-anchor','middle');
+      lbl.setAttribute('font-size', fewLabels ? '15' : '17');
+      lbl.setAttribute('font-family', fewLabels ? 'ui-monospace,monospace' : '-apple-system,sans-serif');
+      lbl.setAttribute('font-weight','600');
+      lbl.setAttribute('fill', '#3A475099');
+      if(fewLabels){
+        lbl.setAttribute('transform', `rotate(-60 ${x+barW/2} ${H-padB+34})`);
+      }
+      lbl.textContent = labels[i];
+      svg.appendChild(lbl);
+    });
+
+    // baseline
+    const base = document.createElementNS(svgns,'line');
+    base.setAttribute('x1', padL); base.setAttribute('x2', W-padR);
+    base.setAttribute('y1', padT+plotH); base.setAttribute('y2', padT+plotH);
+    base.setAttribute('stroke', '#3A4750'); base.setAttribute('stroke-width', 1.6);
+    svg.appendChild(base);
+  }
+
+  /* ---------------- Import / Export ---------------- */
+  const fileInput = document.getElementById('file-input');
+  let importPurpose = 'settings'; // 'onboarding' | 'settings'
+
+  function parseWorkbookAndMerge(workbook){
+    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(sheet, {header:1, raw:true, defval:null});
+    let imported = 0;
+    for(let i=1; i<rows.length; i++){ // Zeile 0 = Kopfzeile
+      const row = rows[i];
+      if(!row || row[0]==null || row[1]==null) continue;
+      let dateVal = row[0];
+      let d;
+      if(dateVal instanceof Date){ d = dateVal; }
+      else if(typeof dateVal === 'number'){ d = XLSX.SSF ? new Date(Date.UTC(1899,11,30) + dateVal*86400000) : null; }
+      else if(typeof dateVal === 'string'){
+        const parts = dateVal.split(/[.\-\/]/);
+        if(parts.length===3){
+          if(parts[0].length===4){ d = new Date(+parts[0], +parts[1]-1, +parts[2]); }
+          else { d = new Date(+parts[2], +parts[1]-1, +parts[0]); }
+        }
+      }
+      if(!d || isNaN(d.getTime())) continue;
+      const num = parseFloat(String(row[1]).replace(',','.'));
+      if(isNaN(num)) continue;
+      data[toKey(d)] = Math.round(num*10)/10;
+      imported++;
+    }
+    persistData();
+    return imported;
+  }
+
+  fileInput.addEventListener('change', (e)=>{
+    const file = e.target.files[0];
+    if(!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev)=>{
+      try{
+        const wb = XLSX.read(ev.target.result, {type:'array', cellDates:true});
+        const count = parseWorkbookAndMerge(wb);
+        settings.fileName = file.name;
+        persistSettings();
+        if(importPurpose === 'onboarding'){
+          finishOnboarding();
+        }
+        showStatus(`${count} Einträge aus „${file.name}" eingelesen.`);
+      }catch(err){
+        alertDialog('Die Datei konnte nicht gelesen werden. Bitte prüfe das Format (Spalten „Datum" und „Niederschlag [mm]").');
+        if(importPurpose === 'onboarding') finishOnboarding();
+      }
+    };
+    reader.readAsArrayBuffer(file);
+    fileInput.value = '';
+  });
+
+  document.getElementById('btn-reimport').addEventListener('click', ()=>{
+    importPurpose = 'settings';
+    fileInput.click();
+  });
+
+  document.getElementById('btn-export').addEventListener('click', exportXlsx);
+
+  function exportXlsx(){
+    const keys = Object.keys(data).sort();
+    if(!keys.length){ alertDialog('Es sind noch keine Daten zum Exportieren vorhanden.'); return; }
+    const rows = [["Datum","Niederschlag [mm]"]];
+    keys.forEach(k=>{ rows.push([keyToDate(k), data[k]]); });
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    const range = XLSX.utils.decode_range(ws['!ref']);
+    for(let R=range.s.r+1; R<=range.e.r; R++){
+      const dc = ws[XLSX.utils.encode_cell({r:R,c:0})];
+      if(dc){ dc.t='d'; dc.z='dd.mm.yyyy'; }
+      const nc = ws[XLSX.utils.encode_cell({r:R,c:1})];
+      if(nc){ nc.t='n'; nc.z='0.0'; }
+    }
+    ws['!cols'] = [{wch:12},{wch:18}];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Niederschlag');
+    const stamp = toKey(new Date());
+    XLSX.writeFile(wb, `Niederschlag_${stamp}.xlsx`);
+  }
+
+  document.getElementById('btn-reset').addEventListener('click', async ()=>{
+    const ok = await showDialog({title:'Alle Daten löschen', message:'Wirklich alle erfassten Niederschlagsdaten unwiderruflich löschen?', okText:'Löschen', cancelText:'Abbrechen'});
+    if(ok){
+      data = {};
+      persistData();
+      renderChart();
+      showStatus('Alle Daten wurden gelöscht.');
+    }
+  });
+
+  /* ---------------- Einstellungen Anzeige ---------------- */
+  function refreshSettingsScreen(){
+    document.getElementById('set-filename').textContent = settings.fileName ? settings.fileName : 'Keine Datei ausgewählt';
+    document.getElementById('set-count').textContent = `${Object.keys(data).length} Tage erfasst`;
+  }
+
+  /* ---------------- Letzte Einträge ---------------- */
+  function renderRecentList(){
+    const list = document.getElementById('recent-list');
+    const keys = Object.keys(data).sort().reverse().slice(0, 10);
+    list.innerHTML = '';
+    if(!keys.length){
+      const empty = document.createElement('div');
+      empty.className = 'recent-empty';
+      empty.textContent = 'Noch keine Einträge vorhanden.';
+      list.appendChild(empty);
+      return;
+    }
+    keys.forEach(k=>{
+      const row = document.createElement('div');
+      row.className = 'recent-row';
+      const d = document.createElement('span');
+      d.className = 'r-date';
+      d.textContent = fmtDisplay(k);
+      const v = document.createElement('span');
+      v.className = 'r-val';
+      v.textContent = fmtDe(data[k]) + ' mm';
+      row.appendChild(d); row.appendChild(v);
+      list.appendChild(row);
+    });
+  }
+
+  /* ---------------- Onboarding ---------------- */
+  const overlay = document.getElementById('overlay-onboarding');
+  function finishOnboarding(){
+    localStorage.setItem('pegel_onboarded','1');
+    overlay.classList.add('hidden');
+    refreshSettingsScreen();
+    renderChart();
+  }
+  document.getElementById('onb-yes').addEventListener('click', ()=>{
+    importPurpose = 'onboarding';
+    fileInput.click();
+  });
+  document.getElementById('onb-no').addEventListener('click', finishOnboarding);
+
+  /* ---------------- Init ---------------- */
+  loadState();
+  refreshSettingsScreen();
+  renderRecentList();
+  if(!localStorage.getItem('pegel_onboarded')){
+    overlay.classList.remove('hidden');
+  }
+  renderChart();
+
+})();
+</script>
+<script>
+  if('serviceWorker' in navigator){
+    window.addEventListener('load', ()=>{
+      navigator.serviceWorker.register('./sw.js').catch(()=>{});
+    });
+  }
+</script>
+</body>
+</html>
