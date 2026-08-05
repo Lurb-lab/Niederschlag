@@ -1,4 +1,4 @@
-const CACHE_NAME = 'pegel-v2';
+const CACHE_NAME = 'pegel-v3';
 const APP_SHELL = [
   './niederschlag-app.html',
   './manifest.json',
