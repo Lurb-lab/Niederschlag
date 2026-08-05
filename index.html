@@ -696,20 +696,30 @@
 
   document.getElementById('btn-export').addEventListener('click', exportXlsx);
 
+  // Berechnet die Excel-Datumsseriennummer direkt und zuverlässig (unabhängig von
+  // Zeitzonen-/Date-Objekt-Eigenheiten), Referenzpunkt: 30.12.1899 (Excel-Standard).
+  function excelSerial(key){
+    const [y,m,d] = key.split('-').map(Number);
+    const utcTage = Date.UTC(y, m-1, d);
+    const excelEpoche = Date.UTC(1899, 11, 30);
+    return Math.round((utcTage - excelEpoche) / 86400000);
+  }
+
   function exportXlsx(){
     const keys = Object.keys(data).sort();
     if(!keys.length){ alertDialog('Es sind noch keine Daten zum Exportieren vorhanden.'); return; }
-    const rows = [["Datum","Niederschlag [mm]"]];
-    keys.forEach(k=>{ rows.push([keyToDate(k), data[k]]); });
-    const ws = XLSX.utils.aoa_to_sheet(rows, {cellDates:true});
-    const range = XLSX.utils.decode_range(ws['!ref']);
-    for(let R=range.s.r+1; R<=range.e.r; R++){
-      const dc = ws[XLSX.utils.encode_cell({r:R,c:0})];
-      if(dc){ dc.t='d'; dc.z='dd.mm.yyyy'; }
-      const nc = ws[XLSX.utils.encode_cell({r:R,c:1})];
-      if(nc){ nc.t='n'; nc.z='0.0'; }
-    }
+
+    const ws = {};
+    ws['A1'] = {t:'s', v:'Datum'};
+    ws['B1'] = {t:'s', v:'Niederschlag [mm]'};
+    keys.forEach((k, i)=>{
+      const r = i + 2;
+      ws['A'+r] = {t:'n', v: excelSerial(k), z:'dd.mm.yyyy'};
+      ws['B'+r] = {t:'n', v: data[k], z:'0.0'};
+    });
+    ws['!ref'] = XLSX.utils.encode_range({s:{r:0,c:0}, e:{r:keys.length, c:1}});
     ws['!cols'] = [{wch:12},{wch:18}];
+
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Niederschlag');
     const stamp = toKey(new Date());
