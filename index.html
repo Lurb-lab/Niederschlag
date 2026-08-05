@@ -701,7 +701,7 @@
     if(!keys.length){ alertDialog('Es sind noch keine Daten zum Exportieren vorhanden.'); return; }
     const rows = [["Datum","Niederschlag [mm]"]];
     keys.forEach(k=>{ rows.push([keyToDate(k), data[k]]); });
-    const ws = XLSX.utils.aoa_to_sheet(rows);
+    const ws = XLSX.utils.aoa_to_sheet(rows, {cellDates:true});
     const range = XLSX.utils.decode_range(ws['!ref']);
     for(let R=range.s.r+1; R<=range.e.r; R++){
       const dc = ws[XLSX.utils.encode_cell({r:R,c:0})];
