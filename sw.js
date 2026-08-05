@@ -1,6 +1,6 @@
 const CACHE_NAME = 'pegel-v1';
 const APP_SHELL = [
-  './niederschlag-app.html',
+  './index.html',
   './manifest.json',
   './icon-192.png',
   './icon-384.png',
@@ -27,7 +27,7 @@ self.addEventListener('fetch', (event) => {
   event.respondWith(
     caches.match(event.request).then((cached) => {
       if (cached) return cached;
-      return fetch(event.request).catch(() => caches.match('./niederschlag-app.html'));
+      return fetch(event.request).catch(() => caches.match('./index.html'));
     })
   );
 });
