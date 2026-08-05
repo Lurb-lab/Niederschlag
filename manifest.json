@@ -2,7 +2,7 @@
   "name": "Pegel – Niederschlagsbuch",
   "short_name": "Pegel",
   "description": "Niederschlagsmengen lokal erfassen, auswerten und als xlsx exportieren.",
-  "start_url": "./niederschlag-app.html",
+  "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
