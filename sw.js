@@ -1,20 +1,15 @@
-const CACHE_NAME = 'pferdehof-cache-v1';
-const ASSETS_TO_CACHE = [
-  './',
+const CACHE_NAME = 'pegel-v4';
+const APP_SHELL = [
   './index.html',
   './manifest.json',
-  './assets/icons/favicon.svg',
-  './assets/icons/favicon.ico',
-  './assets/icons/favicon-16.png',
-  './assets/icons/favicon-32.png',
-  './assets/icons/apple-touch-icon.png',
-  './assets/icons/icon-192.png',
-  './assets/icons/icon-512.png',
+  './icon-192.png',
+  './icon-384.png',
+  './icon-512.png'
 ];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS_TO_CACHE))
+    caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL))
   );
   self.skipWaiting();
 });
@@ -28,10 +23,9 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
+// Netzwerk zuerst: aktuelle Version wird bevorzugt, Cache dient nur als
+// Offline-Rueckfallebene. Verhindert, dass Aktualisierungen "stecken bleiben".
 self.addEventListener('fetch', (event) => {
-  // Google Fonts etc. immer aus dem Netz laden, nicht cachen
-  if (!event.request.url.startsWith(self.location.origin)) return;
-
   event.respondWith(
     fetch(event.request)
       .then((response) => {
@@ -39,6 +33,6 @@ self.addEventListener('fetch', (event) => {
         caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
         return response;
       })
-      .catch(() => caches.match(event.request))
+      .catch(() => caches.match(event.request).then((cached) => cached || caches.match('./index.html')))
   );
 });
